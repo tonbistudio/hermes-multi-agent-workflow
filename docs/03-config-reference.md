@@ -8,7 +8,7 @@ Every key in `triage.yaml`. The typed view is `engine/config.py`; the validator 
 | Key | Type | Meaning |
 |---|---|---|
 | `name` | str | Pipeline slug, for logs. |
-| `board` | str | Kanban board slug. `default` → `~/.hermes/kanban.db`; else `~/.hermes/kanban/boards/<board>/kanban.db`. |
+| `board` | str | Kanban board slug, passed as `hermes kanban --board <board>`. Create it with `hermes kanban boards create <board>`; Hermes resolves where it lives on disk. |
 | `workspace_root` | path | Base for the item vault and per-item persistent workspaces. |
 | `cost_gate_usd` | number | Soft per-item LLM budget. Over before gate → pause+notify; over after approval → notify+continue. |
 
@@ -21,7 +21,7 @@ List of detectors. Each runs a scout skill on a profile, on a cron.
 | `id` | Short id (used in report filenames + the intake task title). |
 | `profile` | Hermes profile the scout runs under (binds the model). |
 | `skill` | Scout skill name installed on that profile (copy of the scout template). |
-| `schedule` | Cron expression. Registered in the **gateway** profile's store (see runbook). |
+| `schedule` | Cron expression. Registered under the scout's own profile (`hermes -p <profile> cron create`); the host gateway runs every profile's crons (see runbook). |
 | `query` | The domain prompt — what to look for. Pasted into the scout skill. |
 
 ## `item_schema.fields:`

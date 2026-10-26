@@ -11,9 +11,9 @@ card assigned to the orchestrator. **Scouts only detect** — no dedup/score/rou
 
 - Code: scout skill template; `engine/intake_parser.py` parses the report.
 - ⚠️ **Gotcha — kanban toolset.** Scouts run via cron, not the dispatcher, so
-  kanban tools are NOT auto-enabled (`HERMES_KANBAN_TASK` is unset). Each scout
-  profile must list `kanban` in `toolsets:` or it writes a report but silently
-  fails to create the intake task.
+  kanban tools are NOT auto-enabled (`HERMES_KANBAN_TASK` is unset). Enable them
+  for each scout's cron platform (`hermes -p <scout> tools enable --platform cron
+  kanban`) or it writes a report but silently fails to create the intake task.
 
 ## Stage 2 — Dedup (orchestrator → engine)
 
@@ -86,10 +86,13 @@ chain via `TriageEngine.fulfillment_specs()`.
 
 ## Cost gate (cross-cutting)
 
-`scripts/cost_report.py <slug>` sums per-item spend from board telemetry and
-compares to `cost_gate_usd`. Over before the gate → pause + ask; over after
-approval → notify + continue. Degrades to "telemetry unavailable" if your Hermes
-build doesn't expose cost columns — adjust the SQL there for your schema.
+`scripts/cost_report.py <slug>` sums per-item spend and compares it to
+`cost_gate_usd`. Over before the gate → pause + ask; over after approval → notify +
+continue. The board has no cost column, so workers report spend when they close a
+card — `kanban_complete(..., metadata={"cost_usd": <usd>})` — and the script sums
+`cost_usd` across the linked tasks' runs (via `hermes kanban show --json`). Tasks
+that didn't report are listed as `unreported`; if none did, it prints "telemetry
+unavailable" rather than guessing.
 
 ## Failure handling
 

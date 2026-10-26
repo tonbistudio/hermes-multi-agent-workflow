@@ -56,28 +56,37 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_scaffold(args: argparse.Namespace) -> int:
     cfg = TriageConfig.load(args.config)
-    print(f"# Scaffold plan for pipeline {cfg.name!r}. Review, then run the commands you trust.\n")
-    print(f"# 1. Create the dedicated board")
-    print(f"hermes kanban boards create {cfg.board}    # TODO: confirm subcommand on your Hermes version\n")
-    print(f"# 2. Create the profiles (one per role + one per source profile)")
     profiles = sorted(set(cfg.roles.values()) | {s.profile for s in cfg.sources})
+    print(f"# Scaffold plan for pipeline {cfg.name!r}. Review, then run the commands you trust.")
+    print(f"# Written against the current Hermes CLI (`hermes kanban`, `hermes -p <profile> ...`).\n")
+    print(f"# 1. Create the dedicated board")
+    print(f"hermes kanban boards create {cfg.board}\n")
+    print(f"# 2. Create the profiles (one per role + one per source profile).")
+    print(f"#    --clone-from copies config.yaml/.env/SOUL.md/skills from a base profile;")
+    print(f"#    then set each profile's model:  hermes -p <profile> model")
     for prof in profiles:
-        print(f"hermes profile create {prof} --from <base-profile>   # TODO: set model in {prof}/config.yaml")
+        print(f"hermes profile create {prof} --clone-from <base-profile>")
     print()
-    print(f"# 3. Source profiles need the `kanban` toolset (they run via cron, not the dispatcher)")
+    print(f"# 3. Scouts run from cron (not the dispatcher), so enable the `kanban` toolset")
+    print(f"#    for their cron platform — otherwise kanban_create isn't available to them.")
     for s in cfg.sources:
-        print(f"#   edit ~/.hermes/profiles/{s.profile}/config.yaml → toolsets: [hermes-cli, kanban]")
+        print(f"hermes -p {s.profile} tools enable --platform cron kanban")
     print()
-    print(f"# 4. Install skills: copy skills/templates/triage-orchestrator → orchestrator profile,")
-    print(f"#    and triage-scout → each source profile (rename per source).")
+    print(f"# 4. Install skills: copy skills/templates/triage-orchestrator → the orchestrator")
+    print(f"#    profile's skills dir, and triage-scout → each source profile (renamed per source).")
     for s in cfg.sources:
         print(f"#   {s.skill} → profile {s.profile}")
     print()
-    print(f"# 5. Register scout crons in the GATEWAY profile's store (v0.15.0+ reads only that store)")
+    print(f"# 5. Register each scout's cron under ITS OWN profile, created paused.")
+    print(f"#    One host gateway serves every profile's cron store (multiplexed by default).")
     for s in cfg.sources:
-        print(f"orchestrator cron create '{s.schedule}' --profile {s.profile} --skill {s.skill}   # TODO confirm flags")
+        print(f"hermes -p {s.profile} cron create '{s.schedule}' "
+              f"\"Run one sweep now, following the {s.skill} skill exactly.\" "
+              f"--skill {s.skill} --name scout-{s.id} --continuity --paused")
     print()
-    print(f"# 6. Start the runtime (WSL: foreground):  orchestrator gateway run")
+    print(f"# 6. Start the runtime: ONE host gateway (default profile) runs the dispatcher")
+    print(f"#    and every profile's cron.  Foreground:  hermes gateway run")
+    print(f"#    Check scheduling:  hermes -p <scout-profile> cron status")
     print(f"# See docs/07-runbook.md for the full go-live sequence.")
     return 0
 

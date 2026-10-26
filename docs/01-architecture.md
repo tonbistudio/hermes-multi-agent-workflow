@@ -18,7 +18,7 @@ into Python and leaves the skill only what needs **judgment**.
    │ scoring.py   apply rubric (LLM-breakdown mode + deterministic mode)         │
    │ routing.py   classification → path                                          │
    │ dedup.py     similarity (token-cosine; embedding-ready)                     │
-   │ item_vault   one md file per item   kanban_store  writes the board          │
+   │ item_vault   one md file per item   hermes_board  writes the board          │
    └───────────────────────────────┬────────────────────────────────────────────┘
                                     │ called by
             ┌───────────────────────┴───────────────────────┐
@@ -45,7 +45,7 @@ into Python and leaves the skill only what needs **judgment**.
 The engine returns **task specs** (plain dataclasses: title/body/role/parents/
 workspace) rather than touching the board itself, except in `proposal_actions.py`
 and (at runtime) the orchestrator, which turn specs into real cards via
-`KanbanStore`. This keeps the planning logic pure and unit-testable; side effects
+`HermesBoard` (which calls `hermes kanban`). This keeps the planning logic pure and unit-testable; side effects
 live at the edges.
 
 ## Data flow of one item

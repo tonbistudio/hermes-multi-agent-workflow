@@ -97,7 +97,8 @@ These cost real debugging and are now baked into the template so you don't repea
 them (see `docs/05-pipeline-stages.md`):
 
 - Scouts run via cron, not the dispatcher, so they need the `kanban` toolset
-  explicitly — otherwise they write a report but can't create the intake card.
+  enabled for their cron platform explicitly — otherwise they write a report but
+  can't create the intake card.
 - Post-gate stages must share a persistent workspace; scratch dirs are wiped
   between tasks and strand the final delivery step.
 - A headless orchestrator must actively send messages — setting a status field

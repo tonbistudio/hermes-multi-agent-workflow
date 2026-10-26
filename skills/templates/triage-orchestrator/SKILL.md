@@ -21,7 +21,8 @@ metadata:
 > `docs/01-architecture.md` and `docs/05-pipeline-stages.md`.
 
 All commands below run from the repo root with `triage.yaml` present.
-`TRIAGE_CONFIG`, `TRIAGE_VAULT_DIR`, and `HERMES_KANBAN_DB` are honored.
+`TRIAGE_CONFIG`, `TRIAGE_VAULT_DIR`, and `HERMES_BIN` are honored. Board writes
+go through `hermes kanban --board <board>`, so `hermes` must be on PATH.
 
 ## Trigger
 
@@ -92,12 +93,16 @@ spawns the post-gate chain in a shared persistent workspace. You do nothing else
 
 ### 8. Deliver
 When the final fulfillment stage completes, DM the deliverable to the human
-(`hermes send --to telegram --file <deliverable>`).
+(`hermes send --to telegram "Deliverable for <slug>: MEDIA:<absolute path>"` —
+`--file` sends a file's text; `MEDIA:<path>` sends it as an attachment).
 
 ## Rules
 
 - Narrate one line per decision to Telegram so the human has a pulse.
 - Never auto-approve. The gate is real.
+- When you close a card, report its spend for the cost gate:
+  `kanban_complete(summary=..., metadata={"cost_usd": <usd>})`. Put the same
+  instruction in the bodies of cards you create (`scripts/cost_report.py` sums it).
 - Only YOU write vault item files and create child tasks. Workers don't fan out.
 - Be honest in scoring/classification — gaming them wastes the human's one tap
   and produces low-value output.

@@ -40,7 +40,7 @@ lives in one file, `triage.yaml`.
 ```bash
 pip install -r requirements.txt          # just PyYAML
 python -m cli.triage validate            # check the example config
-python -m unittest discover -s tests     # 12 tests, all generic
+python -m unittest discover -s tests     # engine + board-client tests, no live Hermes needed
 python -m cli.triage scaffold            # print the Hermes setup plan
 ```
 
@@ -68,7 +68,7 @@ engine/                  Generic engine (rarely edited)
   routing.py             Classification → path
   dedup.py               Similarity (token-cosine; embedding-ready)
   item_vault.py          One markdown file per tracked item
-  kanban_store.py        Writes the Hermes Kanban board
+  hermes_board.py        Writes the Hermes Kanban board (via `hermes kanban`)
   intake_parser.py       Parses scout reports
   frontmatter.py         Stdlib YAML-frontmatter for item files
 proposal_actions.py      Human-gate handler (approve/shelve/modify) — config-driven

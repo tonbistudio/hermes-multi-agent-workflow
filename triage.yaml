@@ -19,8 +19,8 @@ name: ai-agent-pain-points
 
 # The dedicated Hermes Kanban board this pipeline runs on. Keep it isolated from
 # `default` so triage cards don't mix with your other work.
-# Resolves to ~/.hermes/kanban/boards/<board>/kanban.db (or ~/.hermes/kanban.db
-# when board: default).
+# Create it once with `hermes kanban boards create <board>`; every board call goes
+# through `hermes kanban --board <board>`, so Hermes resolves where it lives.
 board: pain-point
 
 # Where per-item persistent workspaces and the item vault live (relative to repo

@@ -38,7 +38,7 @@ that belongs in config.
 | `engine/scoring.py` — applies the rubric | `paths/specs/*.md` — output formats |
 | `engine/routing.py` — applies the route map | `paths/proposals/*.md` — gate messages |
 | `engine/dedup.py` — similarity | `skills/templates/*/SKILL.md` — scout + orchestrator behavior |
-| `engine/item_vault.py`, `kanban_store.py`, `frontmatter.py`, `intake_parser.py` | env: profiles, models, board name, schedules |
+| `engine/item_vault.py`, `hermes_board.py`, `frontmatter.py`, `intake_parser.py` | env: profiles, models, board name, schedules |
 | `proposal_actions.py` — gate handler (config-driven) | |
 
 ## Architecture in one paragraph
@@ -72,8 +72,13 @@ Follow `docs/04-adapting-to-your-domain.md`. In short:
 These cost real debugging in the system this was extracted from. Preserve them:
 
 - **Scout profiles need the `kanban` toolset.** Scouts run via cron (not the
-  dispatcher), so kanban tools aren't auto-enabled. Without it the scout writes a
-  report but silently can't create the intake task.
+  dispatcher), so kanban tools aren't auto-enabled. Enable it per platform:
+  `hermes -p <scout> tools enable --platform cron kanban`. Without it the scout
+  writes a report but silently can't create the intake task.
+- **Write the board through Hermes, never raw SQLite.** `engine/hermes_board.py`
+  shells to `hermes kanban --board <board> ...` so Hermes resolves the board
+  location and keeps its invariants (parent validation, claim fencing, run
+  records, hooks). Don't reintroduce direct `kanban.db` INSERTs.
 - **Post-gate stages must use a persistent `dir` workspace, not scratch.** Scratch
   dirs are wiped between tasks, stranding the final delivery step. `engine.py`
   already does this for `fulfill` chains — don't change it to scratch.

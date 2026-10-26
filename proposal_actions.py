@@ -17,7 +17,11 @@ the reply verbs (see `gate:` in triage.yaml) to these subcommands.
 Environment overrides:
     TRIAGE_CONFIG          path to triage.yaml          (default: ./triage.yaml)
     TRIAGE_VAULT_DIR       items vault dir              (default: <workspace_root>/vault/items)
-    HERMES_KANBAN_DB       board DB (dispatcher injects it for workers)
+    HERMES_BIN             `hermes` executable          (default: `hermes` on PATH)
+
+Board writes go through `hermes kanban --board <board>` (see engine/hermes_board.py),
+so Hermes resolves the board location (HERMES_HOME / HERMES_KANBAN_HOME / profiles /
+Windows) and enforces its own invariants. Needs `hermes` on PATH.
 
 Stdlib + PyYAML (for config) + local `engine/*` only, so it runs from a thin shell.
 It refuses to act unless the item status is `awaiting_approval`.
@@ -34,10 +38,11 @@ from typing import Any
 from engine.config import TriageConfig
 from engine.engine import TriageEngine
 from engine.item_vault import ItemVault, utc_now_iso
-from engine.kanban_store import KanbanStore
+from engine.hermes_board import BoardError, HermesBoard
 
 CONFIG_PATH = Path(os.environ.get("TRIAGE_CONFIG") or "triage.yaml")
 EXPECTED_STATUS = "awaiting_approval"
+TERMINAL_STATUSES = {"done", "archived"}
 
 
 def load_config() -> TriageConfig:
@@ -51,19 +56,9 @@ def vault_dir(config: TriageConfig) -> Path:
     return (Path(config.workspace_root).resolve() / "vault" / "items")
 
 
-def board_db(config: TriageConfig) -> Path:
-    """Resolve the board DB the same way Hermes does.
-
-    The dispatcher injects HERMES_KANBAN_DB into each worker's env; that wins.
-    Otherwise: the back-compat `default` board is ~/.hermes/kanban.db; a named
-    board lives at ~/.hermes/kanban/boards/<slug>/kanban.db.
-    """
-    env = os.environ.get("HERMES_KANBAN_DB")
-    if env:
-        return Path(env).resolve()
-    if config.board == "default":
-        return Path.home() / ".hermes" / "kanban.db"
-    return Path.home() / ".hermes" / "kanban" / "boards" / config.board / "kanban.db"
+def board(config: TriageConfig) -> HermesBoard:
+    """The pipeline's board. Hermes itself resolves where it lives on disk."""
+    return HermesBoard(config.board)
 
 
 def first_linked_task(fm: dict[str, Any]) -> str | None:
@@ -113,34 +108,31 @@ def action_approve(slug: str) -> dict[str, Any]:
     ws = engine.workspace_for(path_name, slug)
     ws.mkdir(parents=True, exist_ok=True)
 
-    store = KanbanStore(board_db(config))
-    conn = store.connect()
+    kb = board(config)
     created: list[dict[str, Any]] = []
-    try:
-        # First stage: `ready` now (no blocking parent — a child of the still-open
-        # triage task would sit in `todo` forever). Each later stage parents to the
-        # previous so the kernel promotes it exactly when its predecessor finishes.
-        prev_id: str | None = None
-        for spec in specs:
-            task_id = store.create_task(
-                conn,
-                title=spec.title,
-                body=spec.body,
-                assignee=spec.assignee(config),
-                parents=[prev_id] if prev_id else None,
-                created_by="hermes-triage:human-action",
-                workspace_kind=spec.workspace_kind,
-                workspace_path=spec.workspace_path,
-            )
-            created.append({"task_id": task_id, "title": spec.title, "assignee": spec.assignee(config)})
-            prev_id = task_id
+    # First stage: `ready` now (no blocking parent — a child of the still-open
+    # triage task would sit in `todo` forever). Each later stage parents to the
+    # previous so Hermes promotes it exactly when its predecessor finishes.
+    # Idempotency keys make a retried `approve` (e.g. after a crash mid-chain)
+    # reuse the cards it already created instead of spawning a second chain.
+    prev_id: str | None = None
+    for i, spec in enumerate(specs):
+        task_id = kb.create_task(
+            title=spec.title,
+            body=spec.body,
+            assignee=spec.assignee(config),
+            parents=[prev_id] if prev_id else None,
+            created_by="hermes-triage:human-action",
+            workspace_kind=spec.workspace_kind,
+            workspace_path=spec.workspace_path,
+            idempotency_key=f"{config.name}:{slug}:fulfill:{i}:{spec.title}",
+        )
+        created.append({"task_id": task_id, "title": spec.title, "assignee": spec.assignee(config)})
+        prev_id = task_id
 
-        chain_desc = " → ".join(f"`{c['title']}`" for c in created)
-        store.comment(conn, triage_id, author="human",
-                      body=f"✅ Approved. Spawned {path_name} chain: {chain_desc} (first: `{created[0]['task_id']}`).")
-        conn.commit()
-    finally:
-        conn.close()
+    chain_desc = " → ".join(f"`{c['title']}`" for c in created)
+    kb.comment(triage_id, author="human",
+               body=f"✅ Approved. Spawned {path_name} chain: {chain_desc} (first: `{created[0]['task_id']}`).")
 
     fm["status"] = "approved"
     fm["approved_at"] = utc_now_iso()
@@ -159,16 +151,15 @@ def action_shelve(slug: str, reason: str | None) -> dict[str, Any]:
     require_status(fm, slug)
     triage_id = first_linked_task(fm)
 
-    store = KanbanStore(board_db(config))
-    conn = store.connect()
-    try:
-        if triage_id:
-            store.close_task(conn, triage_id, outcome="shelved_by_human",
-                             summary=f"Shelved by human at gate. Reason: {reason or '(none given)'}")
-            store.comment(conn, triage_id, author="human", body=f"🗑 Shelved.{f' Reason: {reason}' if reason else ''}")
-        conn.commit()
-    finally:
-        conn.close()
+    if triage_id:
+        kb = board(config)
+        kb.comment(triage_id, author="human", body=f"🗑 Shelved.{f' Reason: {reason}' if reason else ''}")
+        # A human decision at the gate: close the root even if a worker still holds
+        # a claim on it (`force`). Skip if it already reached a terminal state.
+        if kb.status(triage_id) not in TERMINAL_STATUSES:
+            kb.complete(triage_id, force=True,
+                        result=f"Shelved by human at gate. Reason: {reason or '(none given)'}",
+                        metadata={"outcome": "shelved_by_human"})
 
     fm["status"] = "shelved_by_human"
     fm["shelved_at"] = utc_now_iso()
@@ -219,18 +210,13 @@ def action_modify(slug: str, change: str) -> dict[str, Any]:
         "Redraft the proposal and re-send it to the human. After re-sending, set "
         "item status back to `awaiting_approval`.\n"
     )
-    store = KanbanStore(board_db(config))
-    conn = store.connect()
-    try:
-        # No blocking parent: the redraft must run now (created `ready`).
-        redraft_id = store.create_task(
-            conn, title=f"redraft_proposal: {slug}", body=redraft_body,
-            assignee=config.role_to_profile(propose_role), created_by="hermes-triage:human-action",
-        )
-        store.comment(conn, triage_id, author="human", body=f"✏️ Modification requested: {change}\n\nRedraft task: `{redraft_id}`.")
-        conn.commit()
-    finally:
-        conn.close()
+    kb = board(config)
+    # No blocking parent: the redraft must run now (created `ready`).
+    redraft_id = kb.create_task(
+        title=f"redraft_proposal: {slug}", body=redraft_body,
+        assignee=config.role_to_profile(propose_role), created_by="hermes-triage:human-action",
+    )
+    kb.comment(triage_id, author="human", body=f"✏️ Modification requested: {change}\n\nRedraft task: `{redraft_id}`.")
 
     fm["status"] = "awaiting_redraft"
     fm["modify_requested_at"] = utc_now_iso()
@@ -281,6 +267,8 @@ def main(argv: list[str] | None = None) -> None:
             die_input(f"Unknown action: {args.action!r}"); return
     except SystemExit:
         raise
+    except BoardError as exc:
+        die_backend(str(exc)); return
     except (ValueError, FileNotFoundError) as exc:
         die_state(str(exc)); return
     except Exception as exc:

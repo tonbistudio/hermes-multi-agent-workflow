@@ -10,8 +10,9 @@ A card (task) is mostly: a **title**, a **body** (instructions), an **assignee**
 (which profile runs it), a **status** (`todo → ready → running → done`), and
 optional **parent links**.
 
-`engine/kanban_store.py` is the thin writer over the board's SQLite DB. You rarely
-edit it.
+`engine/hermes_board.py` is the thin client that writes the board by calling
+`hermes kanban --board <board> ...` (create / comment / complete / show). You
+rarely edit it.
 
 ## Assignee = routing
 
@@ -49,23 +50,28 @@ parent relationships. See the parent-linking in `proposal_actions.py::action_app
    card never completes). The handler creates the first stage with *no* parent
    (so it's `ready`) and chains the rest. Don't "fix" this by parenting it.
 
-2. **`KanbanStore.create_task`** sets status from parents: none → `ready`, some →
-   `todo`. That's the whole promotion contract; respect it when you create cards
-   yourself.
+2. **Hermes sets the initial status from the parents:** none (or all already
+   `done`) → `ready`, any unfinished → `todo`. Unknown parent ids are rejected.
+   That's the whole promotion contract; respect it when you create cards yourself.
 
 ## Dedicated board
 
 Each pipeline uses its own board (`board:` in `triage.yaml`), isolated from
-`default`, so triage cards don't mix with unrelated work. Named boards live at
-`~/.hermes/kanban/boards/<slug>/kanban.db`; the back-compat `default` board is
-`~/.hermes/kanban.db`. `proposal_actions.board_db()` resolves this for you and
-honors the dispatcher-injected `HERMES_KANBAN_DB`.
+`default`, so triage cards don't mix with unrelated work. Create it once with
+`hermes kanban boards create <board>`.
+
+You never need the DB path: every board operation goes through
+`hermes kanban --board <board>`, and Hermes resolves where the board lives
+(shared Hermes root or `HERMES_KANBAN_HOME`, `default` vs. named boards, the
+dispatcher-pinned `HERMES_KANBAN_BOARD` / `HERMES_KANBAN_DB` inside workers, and
+`%LOCALAPPDATA%\hermes` on native Windows). Set `HERMES_BIN` if `hermes` isn't on
+`PATH`.
 
 ## Version note
 
-`kanban_store.py` writes the board schema directly (columns `id, title, body,
-assignee, status, priority, created_by, created_at, workspace_kind,
-workspace_path, consecutive_failures`, plus `task_links`, `task_comments`,
-`task_events`). If a future Hermes release changes these, update the INSERTs
-there. The dispatcher + cron live **inside the gateway** (the old standalone
-`hermes kanban daemon` is deprecated).
+Earlier versions of this template wrote the board's SQLite schema directly.
+Current Hermes owns invariants a raw writer skips — parent validation, live-claim
+fencing on completion, run records, lifecycle hooks/notifications, idempotency
+keys — and migrates its schema between releases. `engine/hermes_board.py` uses the
+CLI instead, so it keeps working across schema changes. The dispatcher + cron live
+**inside the gateway**; one host gateway serves every profile by default.

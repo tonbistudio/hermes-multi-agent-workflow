@@ -17,7 +17,7 @@ them in prose.
 This module returns plain dict "task specs" (title/body/role/parents/workspace)
 rather than touching the board itself, so it is unit-testable without a live DB.
 `proposal_actions.py` and the orchestrator turn specs into real cards via
-`KanbanStore.create_task`. See `docs/01-architecture.md`.
+`HermesBoard.create_task` (engine/hermes_board.py → `hermes kanban create`). See `docs/01-architecture.md`.
 """
 from __future__ import annotations
 
@@ -49,6 +49,14 @@ class TaskSpec:
 
     def assignee(self, config: TriageConfig) -> str:
         return config.role_to_profile(self.role)
+
+
+# Appended to every card the engine builds: the board has no cost column, so
+# workers report spend on completion and scripts/cost_report.py sums it.
+COST_REPORT_NOTE = (
+    "\nWhen you finish, close this card with your spend for the cost gate: "
+    "kanban_complete(summary=..., metadata={\"cost_usd\": <this run's USD cost>}).\n"
+)
 
 
 class TriageEngine:
@@ -115,7 +123,7 @@ class TriageEngine:
                 body=(
                     f"Research lane `{lane}` for item `{slug}`.\n"
                     f"Read the item file, do the lane's research, report findings."
-                    f"{classifier_note}"
+                    f"{classifier_note}\n{COST_REPORT_NOTE}"
                 ),
                 role=role,
                 parents=[triage_task_id],
@@ -164,7 +172,7 @@ class TriageEngine:
             body = (
                 f"Stage `{stage.stage}` ({phase}) for item `{slug}` on the `{path_name}` path.\n"
                 f"Read the item file for the approved proposal, sources, score, and human notes.\n"
-                f"{ws_note}{injected}"
+                f"{ws_note}{injected}{COST_REPORT_NOTE}"
             )
             specs.append(TaskSpec(
                 title=f"{stage.stage}: {slug}",

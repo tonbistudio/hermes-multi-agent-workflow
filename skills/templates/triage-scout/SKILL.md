@@ -33,9 +33,10 @@ a smoke test:
 ## Prerequisite (read once)
 
 This skill runs via **cron, not the dispatcher**, so `HERMES_KANBAN_TASK` is
-unset and kanban tools are NOT auto-enabled. The scout profile MUST list `kanban`
-in its `toolsets:` or `kanban_create` silently does nothing. (The scaffolder sets
-this; verify it.)
+unset and kanban tools are NOT auto-enabled. Enable the `kanban` toolset for the
+scout profile's cron platform or `kanban_create` won't be available:
+`hermes -p <profile> tools enable --platform cron kanban` (the scaffold plan prints
+this; verify it).
 
 ## What to look for
 
